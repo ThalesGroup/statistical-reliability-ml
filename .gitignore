@@ -1,0 +1,7 @@
+**/__pycache__/
+build/
+dist/
+notebooks
+statistical_reliability_ml.egg-info/
+tests_results/
+debug.log
