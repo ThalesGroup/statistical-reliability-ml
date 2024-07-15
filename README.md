@@ -1,44 +1,88 @@
-# Thales Open Source Template Project
+# Statistical Reliability ML
 
-Template for creating a new project in the [Thales GitHub organization](https://github.com/ThalesGroup).
+This package provides implementations of Monte Carlo methods to estimate the probability of failure of neural networks under noisy inputs.
 
-Each Thales OSS project repository **MUST** contain the following files at the root:
+It takes as input a PyTorch model and samples from a dataset, and it outputs the probabilities of failure given the noise configuration.
 
-- a `LICENSE` which has been chosen in accordance with legal department depending on your needs
+It implements several estimators. Currently:
 
-- a `README.md` outlining the project goals, sponsoring sig, and community contact information, [GitHub tips about README.md](https://docs.github.com/en/github/creating-cloning-and-archiving-repositories/about-readmes)
+* a basic Crude Monte Carlo,
+* the first-order reliability measure (FORM),
+* an importance sampling Monte Carlo estimation.
 
-- a `CONTRIBUTING.md` outlining how to contribute to the project, how to submit a pull request and an issue
+The last two estimators require searching for the Most Probable Failure Point (MPP).
+The package provides several methods to find these points.
+One of these methods uses [Foolbox](https://foolbox.jonasrauber.de) adversarial attacks, an optional dependecncy for the package.
 
-- a `SECURITY.md` outlining how the security concerns are handled, [GitHub tips about SECURITY.md](https://docs.github.com/en/github/managing-security-vulnerabilities/adding-a-security-policy-to-your-repository)
+## Basic usage
 
-Below is an example of the common structure and information expected in a README.
+Considering a PyTorch model ```model``` and a supervised datatet with a PyTorch tensor ```X_test``` of featrues and a tensor ```y_test``` of  true labels,
+we configure a reliability experiment with the following steps.
+s
+### 1. Import the package
 
-**Please keep this structure as is and only fill the content for each section according to your project.**
+```python
+import statistical_reliability_ml as strml
+```
 
-If you need assistance or have question, please contact oss@thalesgroup.com
+### 2. Create an experiment
 
-## Get started
+```python
+experiment = strml.StatsRelExperiment(model, X_test, y_test, x_min=0, x_max=1, n_rep=10, noise_dist='gaussian', epsilon_range=[0.3])
+```
 
-XXX project purpose it to ...
+The parameters provided here are:
 
-**Please also add the description into the About section (Description field)**
+* ```x_min```, ```x_max```: the bounds for the samples features
+* ```n_rep```: the number of repetitions for each experiment. Setting this parameter greater than 1 will allow to estimate the variance of the estimations.
+* ```noise_dist```: the type of noise distribution (either Gaussian, uniform or real uniform noise).
+* ```epsilon_range```: a list of scale values for the noise. Each value will be evaluated in a separate experiment.
 
-## Documentation
+Other parameters can be provided and are decribed in the description of the ```StatsRelExperiment``` class.
 
-Documentation is available at [xxx/docs](https://xxx/docs/).
+### 3. Configure an estimator
 
-You can use [GitHub pages](https://guides.github.com/features/pages/) to create your documentation.
+The estimators classes are available in the package ```estimators```.
 
-See an example here : https://github.com/ThalesGroup/ThalesGroup.github.io
+For instance the Crude Monte Carlo estimator is configured in the following manner:
 
-**Please also add the documentation URL into the About section (Website field)**
+```python
+method = strml.estimators.CrudeMC(N_samples=[100,1000,1e4], track_advs=True)
+```
 
-## Contributing
+This estimator takes as parameter the number of samples to generate (```N_samples```). Such a parameter can either be a single value or a list of values. If it is list then several experiments will be performed, each using a different value for the parameter. If more parameters defined as a range of values, then the cross-product of all the parameters configurations will be tested.
 
-If you are interested in contributing to the XXX project, start by reading the [Contributing guide](/CONTRIBUTING.md).
+The Boolean parameter ```track_advs``` set to True requires that random samples that are adversarial examples will be ouputed in the results of the experiment.
 
-## License
+#### Optionaly, configure a MPP search method
 
-The chosen license in accordance with legal department must be defined into an explicit [LICENSE](https://github.com/ThalesGroup/template-project/blob/master/LICENSE) file at the root of the repository
-You can also link this file in this README section.
+The other estimators (FORM and Importance Sampling) require as a mandatory parameter a method to search for the Most Probable Failure Point (MPP). The MPP search methods are classes in the package ```mpp_search```.
+
+For instance the Newton search is configured in the following manner:
+
+```python
+search_method = strml.mpp_search.MPPSearchNewton(max_iter=[100, 1e4, 1e5], real_mpp=True)
+```
+
+Again the parameter ```max_iter``` can either be a single value or a list of values.
+
+Then, the importance sampling estimator for instance is instanciated like this:
+
+```python
+method = strml.estimators.ImportanceSampling(search_method, N_samples=1000 track_advs=False, save_weights=False, save_mpp=False)
+```
+
+### 4. Run the experiments
+
+Given an experiment object and an estimator, we run all experiments with the following command:
+
+```python
+results_df, dict_out = experiment.run_estimation(method, test_indices=[0,1,5], verbose=2)
+```
+
+In this command ```test_indices``` is the list of indices from ```X_test``` that will be analyzed.
+
+The outputs of the command are:
+
+* ```results_df```: a Pandas DataFrame that store the results and the parameters of the experiments, with one line for each experiment.
+* ```dict_out```: a dictionnary with additional results that depend on the configuration of the experiment and the estimator.
